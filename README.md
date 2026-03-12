@@ -2,6 +2,58 @@
 
 Steam의 `쿠코로` 감각을 텔레그램 환경으로 옮기기 위한 프로젝트입니다. 현재 MVP는 `GLRL (Green Light, Red Light)` 한 게임 루프를 텔레그램 Bot + Web UI 구조로 검증하는 데 초점을 두고 있습니다.
 
+## 다음 단계 지시문
+
+이 저장소의 다음 구현 방향은 `Cloudflare Pages 정적 배포`에 맞추는 것입니다.
+
+즉, 현재의 `Next.js App Router + API routes` 구조를 유지하지 않고, 아래 방향으로 재구성합니다.
+
+- 프론트엔드는 정적 `HTML + CSS + JavaScript` 중심으로 다시 작성
+- Cloudflare Pages에서 바로 서빙 가능한 산출물만 배포
+- 서버 로직은 페이지 내부 API 라우트가 아니라 외부 백엔드로 분리
+- 데이터 저장과 실시간 반영은 Supabase를 계속 사용
+- Telegram Bot webhook, 방 생성/참가/시작/이동/저격 같은 서버 동작은 Supabase Edge Functions 또는 별도 백엔드 함수로 이전
+
+### 왜 이렇게 가는가
+
+현재 프로젝트는 `Next.js App Router`와 `API routes`에 의존하고 있어 정적 Pages 배포와 맞지 않습니다.
+
+이번 전환의 목표는 다음과 같습니다.
+
+- `pages.dev`에서 확실하게 열리는 정적 프론트엔드 확보
+- 배포 복잡도 감소
+- Cloudflare Pages 무료 플랜과의 정합성 확보
+
+### 재구성 원칙
+
+- `운영 콘솔 / 플레이 화면`의 UX와 게임 규칙은 유지
+- 프레임워크 의존도를 줄이고 정적 자산 중심으로 재작성
+- 브라우저에서 직접 가능한 작업은 프론트엔드에서 처리
+- 비밀 키가 필요한 작업만 외부 함수로 분리
+- Telegram Web App 인증은 브라우저에서 받은 `initData`를 외부 검증 함수로 보내는 구조로 변경
+
+### 우선 이전 대상
+
+1. `/` 운영 콘솔 UI를 정적 페이지로 이전
+2. `/play/[roomId]` 화면을 정적 라우팅 또는 query string 방식으로 이전
+3. `rooms`, `room_players` 조회/구독을 Supabase JS 직접 호출로 이전
+4. `join`, `start`, `signal`, `move`, `shoot` API를 Supabase Edge Functions로 이전
+5. `telegram/session`, `telegram/webhook` 로직을 외부 함수로 이전
+
+### 제거 대상
+
+전환이 시작되면 아래는 단계적으로 제거합니다.
+
+- Next.js API routes
+- Next.js 서버 렌더링 의존 코드
+- Cloudflare Workers 전용 Next 런타임 구성
+
+### 구현 메모
+
+- 최종 산출물은 `index.html` 기반 정적 파일이어야 합니다.
+- 라우팅이 필요하면 `roomId`는 path 대신 query string으로 단순화하는 것도 허용합니다.
+- 배포 성공 기준은 `https://<project>.pages.dev/`에서 실제 화면이 열리는 것입니다.
+
 ## 현재 구현 상태
 
 지금까지 구현된 범위는 다음과 같습니다.
