@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
+import { buildTelegramBotLink, getTelegramBotUsername } from "@/lib/telegramLinks";
 
 type ApiResponse<T = unknown> = {
   success: boolean;
@@ -109,6 +110,7 @@ async function request<T>(url: string, init?: RequestInit) {
 }
 
 export default function HomePage() {
+  const botUsername = getTelegramBotUsername();
   const [responses, setResponses] = useState<ResponseMap>(initialResponses);
   const [roomSnapshot, setRoomSnapshot] = useState<RoomData | null>(null);
   const [roomList, setRoomList] = useState<RoomListItem[]>([]);
@@ -443,6 +445,10 @@ export default function HomePage() {
                 <StatusDot active={Boolean(health?.env.supabaseAnonKey)} />
                 Supabase Key: {health?.env.supabaseAnonKey ? "설정됨" : "누락"}
               </div>
+              <div className="flex items-center gap-2">
+                <StatusDot active={Boolean(botUsername)} />
+                Telegram Bot: {botUsername ? `@${botUsername}` : "누락"}
+              </div>
             </div>
           </div>
         </section>
@@ -547,6 +553,16 @@ export default function HomePage() {
                         >
                           플레이 화면
                         </Link>
+                        {buildTelegramBotLink(entry.room.id) ? (
+                          <Link
+                            href={buildTelegramBotLink(entry.room.id)!}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-sky-300/20 bg-sky-300/10 px-3 py-1.5 text-xs text-sky-100 transition hover:border-sky-200/40 hover:bg-sky-300/20"
+                          >
+                            Telegram 열기
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -710,6 +726,16 @@ export default function HomePage() {
                   >
                     현재 방 플레이 화면 열기
                   </Link>
+                  {buildTelegramBotLink(gameForm.roomId) ? (
+                    <Link
+                      href={buildTelegramBotLink(gameForm.roomId)!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full border border-sky-300/20 bg-sky-300/10 px-4 py-2 text-sm font-medium text-sky-50 transition hover:border-sky-200/40 hover:bg-sky-200/20"
+                    >
+                      Telegram Web App으로 열기
+                    </Link>
+                  ) : null}
                 </div>
               ) : null}
 

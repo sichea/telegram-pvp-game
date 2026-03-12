@@ -16,6 +16,7 @@ Steam의 `쿠코로` 감각을 텔레그램 환경으로 옮기기 위한 프로
 - 완주 판정과 승자 판정
 - 브라우저 운영 콘솔
 - 실제 플레이 화면 `/play/[roomId]`
+- Telegram Web App 세션 기반 유저 자동 인식
 
 핵심 규칙은 `FIRST_FINISH` 기준입니다.
 
@@ -69,6 +70,8 @@ Steam의 `쿠코로` 감각을 텔레그램 환경으로 옮기기 위한 프로
 추가된 API:
 
 - `POST /api/rooms/[roomId]/shoot`
+- `POST /api/telegram/session`
+- `POST /api/telegram/webhook`
 
 ## 플레이 화면에서 가능한 조작
 
@@ -113,7 +116,34 @@ npm install
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+TELEGRAM_BOT_TOKEN=...
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
+NEXT_PUBLIC_APP_URL=...
+TELEGRAM_WEBHOOK_SECRET=...
 ```
+
+`TELEGRAM_BOT_TOKEN`은 Telegram Web App의 `initData` 검증에 사용합니다.
+이 값이 없으면 `/play/[roomId]`의 Telegram 자동 로그인은 동작하지 않고 브라우저 수동 테스트 모드로만 동작합니다.
+`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`이 있으면 운영 콘솔에 Telegram deep link가 노출됩니다.
+`NEXT_PUBLIC_APP_URL`은 Bot이 Web App 버튼으로 열 실제 앱 주소입니다.
+`TELEGRAM_WEBHOOK_SECRET`을 설정하면 `/api/telegram/webhook`에서 Telegram secret header를 검증합니다.
+
+## Telegram Bot 메시지 플로우
+
+현재 저장소에는 Bot webhook 엔드포인트가 포함됩니다.
+
+- `POST /api/telegram/webhook`
+- `/start`
+- `/start room_<roomId>`
+- `/startapp room_<roomId>`
+
+Webhook는 시작 명령을 받으면 사용자가 바로 누를 수 있는 버튼을 응답합니다.
+
+- 로비 열기
+- 특정 방 열기
+- bot deep link 재열기
+
+실서비스에서는 Telegram BotFather에서 webhook URL을 이 엔드포인트로 연결해야 합니다.
 
 3. 개발 서버 실행
 
@@ -202,8 +232,7 @@ where rp.id = duplicates.id;
 
 ## 아직 안 한 것
 
-- 실제 Telegram Bot UI 연결
-- Telegram Web App 기준의 플레이어 인증/세션 연결
+- 실제 Telegram Bot 메뉴/대화 UX 고도화
 - 자동 테스트
 - 프로덕션용 권한 및 보안 설계
 - 다음 게임 모드

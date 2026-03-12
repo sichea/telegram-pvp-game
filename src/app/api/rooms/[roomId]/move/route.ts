@@ -1,13 +1,20 @@
 import { apiError, apiSuccess, buildRoomPayload, getRoomById, getRoomPlayer, isPositiveInteger, moveActionLabel, parseJson, RouteContext, updateRoomPlayer } from "@/lib/rooms";
+import { resolveTelegramSession } from "@/lib/telegram";
 import { MovePlayerRequest } from "@/types/game";
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
     const { roomId } = await params;
     const body = await parseJson<MovePlayerRequest>(request);
+    const { user: telegramUser, error: telegramError } = await resolveTelegramSession(request);
+    if (telegramError) {
+      return apiError(telegramError, 401);
+    }
+
+    const actorUserId = telegramUser?.id ?? body.userId;
     const step = body.step ?? 1;
 
-    if (!roomId || !body.userId) {
+    if (!roomId || !actorUserId) {
       return apiError("roomId와 userId는 필수입니다.", 400);
     }
 
@@ -29,7 +36,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       return apiError("게임이 진행 중일 때만 이동할 수 있습니다.", 409);
     }
 
-    const { data: player, error: playerError } = await getRoomPlayer(roomId, body.userId);
+    const { data: player, error: playerError } = await getRoomPlayer(roomId, actorUserId);
 
     if (playerError) {
       return apiError(playerError.message, 500);
@@ -72,7 +79,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         return apiError("이동 후 방 정보를 불러오지 못했습니다.", 500);
       }
 
-      const updatedPlayer = payload.data.players.find((entry) => entry.user_id === body.userId);
+      const updatedPlayer = payload.data.players.find((entry) => entry.user_id === actorUserId);
 
       return apiSuccess({
         action: moveActionLabel({ signal, finished, eliminated: false }),
@@ -102,7 +109,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       return apiError("이동 후 방 정보를 불러오지 못했습니다.", 500);
     }
 
-    const updatedPlayer = payload.data.players.find((entry) => entry.user_id === body.userId);
+    const updatedPlayer = payload.data.players.find((entry) => entry.user_id === actorUserId);
 
     return apiSuccess({
       action: moveActionLabel({ signal, finished: false, eliminated }),

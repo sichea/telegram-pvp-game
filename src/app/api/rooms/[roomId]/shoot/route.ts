@@ -8,14 +8,22 @@ import {
   RouteContext,
   updateRoomPlayer,
 } from "@/lib/rooms";
+import { resolveTelegramSession } from "@/lib/telegram";
 import { ShootPlayerRequest } from "@/types/game";
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
     const { roomId } = await params;
     const body = await parseJson<ShootPlayerRequest>(request);
+    const { user: telegramUser, error: telegramError } = await resolveTelegramSession(request);
 
-    if (!roomId || !body.hostUserId || !body.targetUserId) {
+    if (telegramError) {
+      return apiError(telegramError, 401);
+    }
+
+    const hostUserId = telegramUser?.id ?? body.hostUserId;
+
+    if (!roomId || !hostUserId || !body.targetUserId) {
       return apiError("roomId, hostUserId, targetUserId는 필수입니다.", 400);
     }
 
@@ -29,7 +37,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       return apiError("방을 찾을 수 없습니다.", 404);
     }
 
-    if (room.host_user_id !== body.hostUserId) {
+    if (room.host_user_id !== hostUserId) {
       return apiError("방장만 저격할 수 있습니다.", 403);
     }
 
@@ -51,7 +59,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       return apiError("대상 플레이어를 찾을 수 없습니다.", 404);
     }
 
-    if (target.user_id === body.hostUserId) {
+    if (target.user_id === hostUserId) {
       return apiError("방장은 자신을 저격할 수 없습니다.", 409);
     }
 

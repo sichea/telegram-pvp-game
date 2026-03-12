@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiError, apiSuccess, buildRoomPayload } from "@/lib/rooms";
 import { supabase } from "@/lib/supabase";
+import { resolveTelegramSession } from "@/lib/telegram";
 import { CreateRoomRequest, RoomRow } from "@/types/game";
 
 export async function GET() {
@@ -44,12 +45,18 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as CreateRoomRequest;
+    const { user: telegramUser, error: telegramError } = await resolveTelegramSession(req);
+    if (telegramError) {
+      return apiError(telegramError, 401);
+    }
+
+    const hostUserId = telegramUser?.id ?? body.hostUserId;
     const title = body.title?.trim();
     const maxPlayers = body.maxPlayers ?? 16;
     const finishDistance = body.finishDistance ?? 10;
     const autoEliminateOnRedMove = body.autoEliminateOnRedMove ?? false;
 
-    if (!body.hostUserId || !title) {
+    if (!hostUserId || !title) {
       return apiError("hostUserId와 title은 필수입니다.", 400);
     }
 
@@ -64,7 +71,7 @@ export async function POST(req: NextRequest) {
     const { data: hostUser, error: hostError } = await supabase
       .from("users")
       .select("id")
-      .eq("id", body.hostUserId)
+      .eq("id", hostUserId)
       .maybeSingle();
 
     if (hostError) {
@@ -78,7 +85,7 @@ export async function POST(req: NextRequest) {
     const { data: room, error: roomError } = await supabase
       .from("rooms")
       .insert({
-        host_user_id: body.hostUserId,
+        host_user_id: hostUserId,
         title,
         status: "WAITING",
         signal_state: "GREEN",
@@ -96,7 +103,7 @@ export async function POST(req: NextRequest) {
 
     const { error: playerError } = await supabase.from("room_players").insert({
       room_id: room.id,
-      user_id: body.hostUserId,
+      user_id: hostUserId,
       role: "HOST",
       status: "ALIVE",
       progress: 0,

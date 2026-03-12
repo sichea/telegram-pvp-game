@@ -1,13 +1,21 @@
 import { apiError, apiSuccess, buildRoomPayload, getRoomById, getRoomPlayer, parseJson, RouteContext } from "@/lib/rooms";
 import { supabase } from "@/lib/supabase";
+import { resolveTelegramSession } from "@/lib/telegram";
 import { JoinRoomRequest } from "@/types/game";
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
     const { roomId } = await params;
     const body = await parseJson<JoinRoomRequest>(request);
+    const { user: telegramUser, error: telegramError } = await resolveTelegramSession(request);
 
-    if (!roomId || !body.userId) {
+    if (telegramError) {
+      return apiError(telegramError, 401);
+    }
+
+    const actorUserId = telegramUser?.id ?? body.userId;
+
+    if (!roomId || !actorUserId) {
       return apiError("roomId와 userId는 필수입니다.", 400);
     }
 
@@ -27,7 +35,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     const { data: existingPlayer, error: existingPlayerError } = await getRoomPlayer(
       roomId,
-      body.userId
+      actorUserId
     );
 
     if (existingPlayerError) {
@@ -57,7 +65,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     const { error } = await supabase.from("room_players").insert({
       room_id: roomId,
-      user_id: body.userId,
+      user_id: actorUserId,
       role: "PLAYER",
       status: "ALIVE",
       progress: 0,

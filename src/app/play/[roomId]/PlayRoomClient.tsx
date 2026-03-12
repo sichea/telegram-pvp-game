@@ -54,6 +54,30 @@ type RoomActionPayload = {
 
 type EffectTone = "green" | "red" | "amber";
 
+type TelegramSessionUser = {
+  id: string;
+  telegram_user_id: number;
+  username: string | null;
+  display_name: string;
+};
+
+type TelegramSessionResponse = {
+  user: TelegramSessionUser;
+  created: boolean;
+};
+
+type TelegramWebApp = {
+  initData?: string;
+  ready?: () => void;
+  expand?: () => void;
+};
+
+type TelegramWindow = Window & {
+  Telegram?: {
+    WebApp?: TelegramWebApp;
+  };
+};
+
 async function request<T>(url: string, init?: RequestInit) {
   const response = await fetch(url, init);
   const payload = (await response.json()) as ApiResponse<T>;
@@ -160,6 +184,10 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
   const [signalFlash, setSignalFlash] = useState<"GREEN" | "RED" | null>(null);
   const [shotTargetId, setShotTargetId] = useState<string | null>(null);
   const [lastActionAt, setLastActionAt] = useState<string>("");
+  const [telegramUser, setTelegramUser] = useState<TelegramSessionUser | null>(null);
+  const [telegramStatus, setTelegramStatus] = useState<string>("브라우저 모드");
+  const [telegramInitData, setTelegramInitData] = useState<string>("");
+  const [joinPending, setJoinPending] = useState(false);
 
   const previousSignalRef = useRef<string | null>(null);
   const eliminatedIdsRef = useRef<Set<string>>(new Set());
@@ -167,7 +195,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
   const signalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const triggerEffect = useEffectEvent((text: string, tone: EffectTone) => {
+  const triggerEffect = (text: string, tone: EffectTone) => {
     if (effectTimerRef.current) {
       clearTimeout(effectTimerRef.current);
     }
@@ -177,9 +205,9 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
     effectTimerRef.current = setTimeout(() => {
       setEffectText("");
     }, 1200);
-  });
+  };
 
-  const flashSignal = useEffectEvent((signal: "GREEN" | "RED") => {
+  const flashSignal = (signal: "GREEN" | "RED") => {
     if (signalTimerRef.current) {
       clearTimeout(signalTimerRef.current);
     }
@@ -188,9 +216,9 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
     signalTimerRef.current = setTimeout(() => {
       setSignalFlash(null);
     }, 650);
-  });
+  };
 
-  const markShot = useEffectEvent((targetUserId: string) => {
+  const markShot = (targetUserId: string) => {
     if (shotTimerRef.current) {
       clearTimeout(shotTimerRef.current);
     }
@@ -199,9 +227,9 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
     shotTimerRef.current = setTimeout(() => {
       setShotTargetId(null);
     }, 900);
-  });
+  };
 
-  const syncRoomData = useEffectEvent((payload: RoomData) => {
+  const syncRoomData = (payload: RoomData) => {
     const previousSignal = previousSignalRef.current;
     const nextSignal = payload.room.signalState;
     const eliminatedIds = new Set(
@@ -234,7 +262,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
       setLastUpdated(new Date().toLocaleTimeString("ko-KR", { hour12: false }));
       setError(null);
     });
-  });
+  };
 
   const fetchRoom = useEffectEvent(async () => {
     try {
@@ -292,7 +320,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
         clearTimeout(shotTimerRef.current);
       }
     };
-  }, [fetchRoom, roomId]);
+  }, [roomId]);
 
   const leaderboard = roomData?.results.leaderboard ?? [];
   const finishDistance = roomData?.room.finish_distance ?? 1;
@@ -301,7 +329,17 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
     () => roomData?.players.filter((player) => !player.eliminated && !player.finished) ?? [],
     [roomData?.players]
   );
-  const selectedPlayer = movablePlayers.find((player) => player.user_id === moveUserId) ?? movablePlayers[0] ?? null;
+  const currentPlayer = telegramUser
+    ? roomData?.players.find((player) => player.user_id === telegramUser.id) ?? null
+    : null;
+  const selectedPlayer =
+    movablePlayers.find((player) => player.user_id === moveUserId) ??
+    (telegramUser
+      ? movablePlayers.find((player) => player.user_id === telegramUser.id) ?? null
+      : null) ??
+    movablePlayers[0] ??
+    null;
+  const canControlHostActions = !telegramUser || telegramUser.id === hostUserId;
 
   useEffect(() => {
     if (!selectedPlayer) {
@@ -316,9 +354,122 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
     }
   }, [moveUserId, movablePlayers, selectedPlayer]);
 
+  useEffect(() => {
+    const webApp = (window as TelegramWindow).Telegram?.WebApp;
+
+    if (!webApp?.initData) {
+      return;
+    }
+
+    webApp.ready?.();
+    webApp.expand?.();
+    setTelegramInitData(webApp.initData);
+
+    let active = true;
+
+    const syncTelegramSession = async () => {
+      setTelegramStatus("텔레그램 세션 확인 중");
+
+      try {
+        const result = await request<TelegramSessionResponse>("/api/telegram/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ initData: webApp.initData }),
+        });
+
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok || !result.body.data) {
+          setTelegramStatus(result.body.error ?? "텔레그램 세션 확인 실패");
+          return;
+        }
+
+        setTelegramUser(result.body.data.user);
+        setTelegramStatus(`텔레그램 로그인: ${result.body.data.user.display_name}`);
+      } catch {
+        if (active) {
+          setTelegramStatus("텔레그램 세션 요청 중 오류");
+        }
+      }
+    };
+
+    void syncTelegramSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!telegramUser || !roomData || joinPending) {
+      return;
+    }
+
+    const alreadyJoined = roomData.players.some((player) => player.user_id === telegramUser.id);
+    if (alreadyJoined || roomData.room.status !== "WAITING") {
+      return;
+    }
+
+    let active = true;
+
+    const joinRoom = async () => {
+      setJoinPending(true);
+
+      try {
+        const headers = new Headers({ "Content-Type": "application/json" });
+        if (telegramInitData) {
+          headers.set("x-telegram-init-data", telegramInitData);
+        }
+
+        const result = await request<RoomActionPayload>(`/api/rooms/${roomId}/join`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ userId: telegramUser.id }),
+        });
+
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok || !result.body.data) {
+          setActionMessage(`자동 참가: ${result.body.error ?? "요청 실패"}`);
+          return;
+        }
+
+        await fetchRoom();
+        setActionMessage("자동 참가: 완료");
+        setLastActionAt(new Date().toLocaleTimeString("ko-KR", { hour12: false }));
+      } catch {
+        if (active) {
+          setActionMessage("자동 참가: 요청 중 오류 발생");
+        }
+      } finally {
+        if (active) {
+          setJoinPending(false);
+        }
+      }
+    };
+
+    void joinRoom();
+
+    return () => {
+      active = false;
+    };
+  }, [joinPending, roomData, roomId, telegramInitData, telegramUser]);
+
   const runAction = async (label: string, url: string, init?: RequestInit) => {
     try {
-      const result = await request<RoomActionPayload>(url, init);
+      const headers = new Headers(init?.headers);
+      if (telegramInitData) {
+        headers.set("x-telegram-init-data", telegramInitData);
+      }
+
+      const result = await request<RoomActionPayload>(url, {
+        ...init,
+        headers,
+      });
 
       if (!result.ok || !result.body.data) {
         setActionMessage(`${label}: ${result.body.error ?? "요청 실패"}`);
@@ -340,6 +491,11 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
   };
 
   const startGame = async () => {
+    if (!canControlHostActions) {
+      setActionMessage("게임 시작: 방장만 실행할 수 있습니다.");
+      return;
+    }
+
     if (!hostUserId) {
       setActionMessage("게임 시작: 방장 정보가 없습니다.");
       return;
@@ -353,6 +509,11 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
   };
 
   const toggleSignal = async (signal?: "GREEN" | "RED") => {
+    if (!canControlHostActions) {
+      setActionMessage("신호 변경: 방장만 실행할 수 있습니다.");
+      return;
+    }
+
     if (!hostUserId) {
       setActionMessage("신호 변경: 방장 정보가 없습니다.");
       return;
@@ -366,7 +527,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
   };
 
   const movePlayer = async (overrideUserId?: string, overrideStep?: number) => {
-    const targetUserId = overrideUserId ?? moveUserId;
+    const targetUserId = telegramUser?.id ?? overrideUserId ?? moveUserId;
     const nextStep = overrideStep ?? Number(step);
 
     if (!targetUserId) {
@@ -385,6 +546,11 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
   };
 
   const shootPlayer = async (targetUserId: string) => {
+    if (!canControlHostActions) {
+      setActionMessage("저격: 방장만 실행할 수 있습니다.");
+      return;
+    }
+
     if (!hostUserId) {
       setActionMessage("저격: 방장 정보가 없습니다.");
       return;
@@ -399,6 +565,18 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
       }),
     });
   };
+
+  const handleKeyboardMove = useEffectEvent(() => {
+    void movePlayer();
+  });
+
+  const handleKeyboardRed = useEffectEvent(() => {
+    void toggleSignal("RED");
+  });
+
+  const handleKeyboardGreen = useEffectEvent(() => {
+    void toggleSignal("GREEN");
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -432,19 +610,19 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
 
       if (event.key === " " || event.key === "Enter") {
         event.preventDefault();
-        void movePlayer();
+        handleKeyboardMove();
         return;
       }
 
       if (event.key.toLowerCase() === "r") {
         event.preventDefault();
-        void toggleSignal("RED");
+        handleKeyboardRed();
         return;
       }
 
       if (event.key.toLowerCase() === "g") {
         event.preventDefault();
-        void toggleSignal("GREEN");
+        handleKeyboardGreen();
       }
     };
 
@@ -452,7 +630,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [movablePlayers, moveUserId, selectedPlayer]);
+  }, [movablePlayers, selectedPlayer]);
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#efe4bf] text-[#1c160f]">
@@ -500,6 +678,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
                 value={roomData?.room.signalState ?? "..."}
                 tone={roomData?.room.signalState === "RED" ? "red" : "green"}
               />
+              <StatusBadge label="PLAYER" value={currentPlayer ? playerLabel(currentPlayer) : "GUEST"} tone="light" />
               <StatusBadge label="UPDATED" value={lastUpdated || "--:--:--"} tone="light" />
               <Link
                 href="/"
@@ -587,6 +766,7 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
           <aside className="grid gap-4">
             <Panel title="Match">
               <InfoRow label="Players" value={String(roomData?.players.length ?? 0)} />
+              <InfoRow label="Session" value={telegramUser ? telegramUser.display_name : telegramStatus} />
               <InfoRow
                 label="Winner"
                 value={roomData?.results.winner ? playerLabel(roomData.results.winner) : "-"}
@@ -640,15 +820,26 @@ export function PlayRoomClient({ roomId }: { roomId: string }) {
                 <select
                   value={selectedPlayer?.user_id ?? ""}
                   onChange={(event) => setMoveUserId(event.target.value)}
+                  disabled={Boolean(telegramUser)}
                   className="rounded-[16px] border-[3px] border-[#4a2d19] bg-[#fff5d9] px-4 py-3 text-sm font-bold text-[#2d1a10] outline-none"
                 >
-                  {movablePlayers.map((player) => (
+                  {(telegramUser ? movablePlayers.filter((player) => player.user_id === telegramUser.id) : movablePlayers).map((player) => (
                     <option key={player.id} value={player.user_id}>
                       {playerLabel(player)}
                     </option>
                   ))}
                 </select>
               </label>
+              {telegramUser ? (
+                <div className="rounded-[16px] border-[3px] border-[#1f6a42] bg-[#c6f5b7] px-4 py-3 text-sm font-bold text-[#123723]">
+                  텔레그램 플레이어 모드에서는 자신의 캐릭터만 이동할 수 있습니다.
+                </div>
+              ) : null}
+              {telegramUser && !currentPlayer ? (
+                <div className="rounded-[16px] border-[3px] border-[#815c12] bg-[#f7da77] px-4 py-3 text-sm font-bold text-[#4e3400]">
+                  현재 텔레그램 계정은 이 방 참가자가 아닙니다.
+                </div>
+              ) : null}
               <label className="grid gap-2">
                 <span className="text-[11px] font-black uppercase tracking-[0.2em] text-[#8a5b3a]">
                   Step
