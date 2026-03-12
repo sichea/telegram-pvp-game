@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 
 type ApiResponse<T = unknown> = {
@@ -18,10 +19,13 @@ type SavedUser = {
 type RoomPlayer = {
   id: string;
   user_id: string;
+  status?: string;
   position: number;
   violations: number;
+  flagged_on_red?: boolean;
   eliminated: boolean;
   finished: boolean;
+  finish_at?: string | null;
   users?: {
     display_name?: string | null;
     username?: string | null;
@@ -40,10 +44,12 @@ type RoomData = {
   };
   players: RoomPlayer[];
   results: {
+    winner: RoomPlayer | null;
     winners: RoomPlayer[];
     finishedPlayers: RoomPlayer[];
     eliminatedPlayers: RoomPlayer[];
     activePlayers: RoomPlayer[];
+    leaderboard: RoomPlayer[];
   };
 };
 
@@ -60,6 +66,17 @@ type RoomListItem = {
 
 type ResponseMap = Record<string, string>;
 
+type HealthState = {
+  ok: boolean;
+  service: string;
+  mode: string;
+  env: {
+    supabaseUrl: boolean;
+    supabaseAnonKey: boolean;
+  };
+  timestamp: string;
+};
+
 const initialResponses: ResponseMap = {
   user: "",
   room: "",
@@ -69,10 +86,15 @@ const initialResponses: ResponseMap = {
   start: "",
   signal: "",
   move: "",
+  shoot: "",
 };
 
 function pretty(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+function playerLabel(player: RoomPlayer) {
+  return player.users?.display_name || player.users?.username || player.user_id;
 }
 
 async function request<T>(url: string, init?: RequestInit) {
@@ -91,6 +113,7 @@ export default function HomePage() {
   const [roomSnapshot, setRoomSnapshot] = useState<RoomData | null>(null);
   const [roomList, setRoomList] = useState<RoomListItem[]>([]);
   const [savedUsers, setSavedUsers] = useState<SavedUser[]>([]);
+  const [health, setHealth] = useState<HealthState | null>(null);
   const [userForm, setUserForm] = useState({
     telegramUserId: "100000001",
     username: "player_one",
@@ -145,6 +168,13 @@ export default function HomePage() {
     const result = await request<{ rooms: RoomListItem[] }>("/api/rooms");
     writeResponse("rooms", result);
     setRoomList(result.body.data?.rooms ?? []);
+  };
+
+  const loadHealth = async () => {
+    const result = await request<HealthState>("/api/health");
+    if (result.body.data) {
+      setHealth(result.body.data);
+    }
   };
 
   const refreshRoomDetail = async () => {
@@ -324,6 +354,41 @@ export default function HomePage() {
     await loadRooms();
   };
 
+  const shootPlayer = async (targetUserId: string) => {
+    if (!roomEndpoint) {
+      writeResponse("shoot", { success: false, data: null, error: "roomId가 필요합니다." });
+      return;
+    }
+
+    const result = await request<{
+      action: string;
+      room: RoomData["room"];
+      player: RoomPlayer;
+      players: RoomPlayer[];
+      results: RoomData["results"];
+    }>(`${roomEndpoint}/shoot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hostUserId: gameForm.hostUserId,
+        targetUserId,
+      }),
+    });
+
+    writeResponse("shoot", result);
+
+    if (result.body.data?.room) {
+      setRoomSnapshot({
+        room: result.body.data.room,
+        players: result.body.data.players,
+        results: result.body.data.results,
+      });
+    }
+
+    await refreshRoomDetail();
+    await loadRooms();
+  };
+
   const selectRoom = (roomId: string) => {
     setGameForm((current) => ({ ...current, roomId }));
   };
@@ -343,20 +408,86 @@ export default function HomePage() {
     setGameForm((current) => ({ ...current, moveUserId: userId }));
   };
 
+  const resetResponses = () => {
+    setResponses(initialResponses);
+  };
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#22473a_0%,#101b16_45%,#09110d_100%)] px-4 py-10 text-stone-100">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <section className="rounded-[28px] border border-white/10 bg-black/30 p-6 shadow-2xl shadow-black/30 backdrop-blur">
-          <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">
-            텔레그램 쿠코로 MVP 디버그 콘솔
-          </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white">
-            무궁화 꽃이 피었습니다 MVP
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-stone-300">
-            최소 제품 흐름은 유저 생성, 방 생성, 방 참가, 게임 시작, 이동, 결과 확인입니다.
-            아래 로비와 유저 패널로 여러 명 테스트를 빠르게 반복할 수 있습니다.
-          </p>
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">
+                Kukoro Telegram MVP Console
+              </p>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white">
+                GLRL 첫 번째 세로 슬라이스
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-stone-300">
+                지금 목표는 스팀 쿠코로의 감각을 텔레그램으로 옮기기 위한 첫 게임 루프를 검증하는
+                것입니다. 유저 생성, 방 생성, 참가, 시작, 신호 전환, 이동, 결과 계산까지 한 화면에서
+                반복 테스트할 수 있게 정리했습니다.
+              </p>
+            </div>
+            <div className="grid gap-2 rounded-3xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-stone-200">
+              <div className="flex items-center gap-2">
+                <StatusDot active={Boolean(health?.ok)} />
+                API 상태: {health?.ok ? "정상" : "미확인"}
+              </div>
+              <div className="flex items-center gap-2">
+                <StatusDot active={Boolean(health?.env.supabaseUrl)} />
+                Supabase URL: {health?.env.supabaseUrl ? "설정됨" : "누락"}
+              </div>
+              <div className="flex items-center gap-2">
+                <StatusDot active={Boolean(health?.env.supabaseAnonKey)} />
+                Supabase Key: {health?.env.supabaseAnonKey ? "설정됨" : "누락"}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <HighlightCard
+            eyebrow="MVP Scope"
+            title="GLRL 코어 루프 구현"
+            body="방 생성부터 결과 계산까지 서버 플로우가 존재합니다. 지금 단계의 핵심은 게임 규칙 검증입니다."
+          />
+          <HighlightCard
+            eyebrow="Current UI"
+            title="텔레그램 전 단계 운영 콘솔"
+            body="실제 봇 UI가 아니라 내부 검증용 콘솔입니다. 여러 플레이어 시나리오를 빠르게 반복하는 용도입니다."
+          />
+          <HighlightCard
+            eyebrow="Next Step"
+            title="배포 후 텔레그램 연결"
+            body="Cloudflare에 프리뷰 배포한 뒤, Web App 또는 Bot 흐름으로 연결하는 것이 자연스러운 다음 단계입니다."
+          />
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+          <Panel title="권장 검증 시나리오">
+            <ol className="space-y-3 text-sm leading-6 text-stone-300">
+              <li>1. 유저를 2명 이상 생성하고 방장/참가자로 지정합니다.</li>
+              <li>2. 방을 만든 뒤 참가자를 입장시키고 현재 방 상태를 확인합니다.</li>
+              <li>3. 방장이 게임을 시작하고 GREEN에서 이동을 반복합니다.</li>
+              <li>4. RED에서 이동해 violation 또는 즉시 탈락 동작을 확인합니다.</li>
+              <li>5. 한 명 이상 완주하면 방 상태와 winners 계산을 확인합니다.</li>
+            </ol>
+          </Panel>
+          <Panel title="MVP 체크포인트">
+            <div className="grid gap-3 text-sm text-stone-300">
+              <ChecklistItem checked={savedUsers.length > 0} label="유저 생성 가능" />
+              <ChecklistItem checked={roomList.length > 0} label="방 목록 조회 가능" />
+              <ChecklistItem checked={Boolean(roomSnapshot)} label="방 상태 스냅샷 확보" />
+              <ChecklistItem checked={health?.ok ?? false} label="헬스체크 응답 가능" />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <ActionButton onClick={loadRooms}>방 목록 새로고침</ActionButton>
+              <ActionButton onClick={loadHealth}>헬스체크 새로고침</ActionButton>
+              <ActionButton onClick={resetResponses}>응답 초기화</ActionButton>
+            </div>
+          </Panel>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
@@ -408,7 +539,15 @@ export default function HomePage() {
                           {entry.room.status} / {entry.room.signalState} / 플레이어 {entry.summary.playerCount}명
                         </div>
                       </div>
-                      <SmallButton onClick={() => selectRoom(entry.room.id)}>선택</SmallButton>
+                      <div className="flex flex-wrap gap-2">
+                        <SmallButton onClick={() => selectRoom(entry.room.id)}>선택</SmallButton>
+                        <Link
+                          href={`/play/${entry.room.id}`}
+                          className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-100 transition hover:border-emerald-200/40 hover:bg-emerald-300/20"
+                        >
+                          플레이 화면
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -431,27 +570,66 @@ export default function HomePage() {
                 value={roomSnapshot.room.auto_eliminate_on_red_move ? "ON" : "OFF"}
               />
             </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <StatCard
+                label="현재 우승자"
+                value={
+                  roomSnapshot.results.winner ? playerLabel(roomSnapshot.results.winner) : "-"
+                }
+              />
+              <StatCard
+                label="완주자 수"
+                value={String(roomSnapshot.results.finishedPlayers.length)}
+              />
+              <StatCard
+                label="생존자 수"
+                value={String(roomSnapshot.results.activePlayers.length)}
+              />
+              <StatCard
+                label="탈락자 수"
+                value={String(roomSnapshot.results.eliminatedPlayers.length)}
+              />
+            </div>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-white/5 text-stone-300">
                   <tr>
+                    <th className="px-4 py-3">rank</th>
                     <th className="px-4 py-3">플레이어</th>
+                    <th className="px-4 py-3">status</th>
                     <th className="px-4 py-3">position</th>
                     <th className="px-4 py-3">violations</th>
+                    <th className="px-4 py-3">flagged</th>
                     <th className="px-4 py-3">eliminated</th>
                     <th className="px-4 py-3">finished</th>
+                    <th className="px-4 py-3">action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {roomSnapshot.players.map((player) => (
+                  {roomSnapshot.results.leaderboard.map((player, index) => (
                     <tr key={player.id} className="border-t border-white/10">
+                      <td className="px-4 py-3">{index + 1}</td>
                       <td className="px-4 py-3">
-                        {player.users?.display_name || player.users?.username || player.user_id}
+                        {playerLabel(player)}
                       </td>
+                      <td className="px-4 py-3">{player.status ?? "-"}</td>
                       <td className="px-4 py-3">{player.position}</td>
                       <td className="px-4 py-3">{player.violations}</td>
+                      <td className="px-4 py-3">{String(player.flagged_on_red ?? false)}</td>
                       <td className="px-4 py-3">{String(player.eliminated)}</td>
                       <td className="px-4 py-3">{String(player.finished)}</td>
+                      <td className="px-4 py-3">
+                        {roomSnapshot.room.status === "RUNNING" &&
+                        roomSnapshot.room.signalState === "RED" &&
+                        !player.finished &&
+                        !player.eliminated &&
+                        player.flagged_on_red &&
+                        player.user_id !== gameForm.hostUserId ? (
+                          <SmallButton onClick={() => shootPlayer(player.user_id)}>저격</SmallButton>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -524,6 +702,17 @@ export default function HomePage() {
                 <ActionButton onClick={movePlayer}>이동</ActionButton>
               </div>
 
+              {gameForm.roomId ? (
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    href={`/play/${gameForm.roomId}`}
+                    className="rounded-full border border-amber-200/20 bg-amber-200/10 px-4 py-2 text-sm font-medium text-amber-50 transition hover:border-amber-200/40 hover:bg-amber-200/20"
+                  >
+                    현재 방 플레이 화면 열기
+                  </Link>
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap items-end gap-3">
                 <Field label="신호 요청">
                   <select value={gameForm.signal} onChange={(event) => setGameForm((current) => ({ ...current, signal: event.target.value }))} className={`${inputClassName} min-w-40`}>
@@ -546,6 +735,7 @@ export default function HomePage() {
             <ResponseCard title="시작" content={responses.start} />
             <ResponseCard title="신호" content={responses.signal} />
             <ResponseCard title="이동" content={responses.move} />
+            <ResponseCard title="저격" content={responses.shoot} />
           </div>
         </section>
       </div>
@@ -604,6 +794,43 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <div className="text-xs uppercase tracking-[0.22em] text-stone-400">{label}</div>
       <div className="mt-2 text-lg font-semibold text-white">{value}</div>
     </div>
+  );
+}
+
+function HighlightCard({
+  eyebrow,
+  title,
+  body,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <section className="rounded-[24px] border border-white/10 bg-black/20 p-5 shadow-lg shadow-black/20">
+      <div className="text-xs uppercase tracking-[0.28em] text-emerald-300/80">{eyebrow}</div>
+      <h2 className="mt-3 text-xl font-semibold text-white">{title}</h2>
+      <p className="mt-3 text-sm leading-6 text-stone-300">{body}</p>
+    </section>
+  );
+}
+
+function ChecklistItem({ checked, label }: { checked: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+      <StatusDot active={checked} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return (
+    <span
+      className={`inline-flex h-2.5 w-2.5 rounded-full ${
+        active ? "bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" : "bg-stone-500"
+      }`}
+    />
   );
 }
 

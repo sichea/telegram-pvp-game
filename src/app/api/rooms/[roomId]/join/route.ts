@@ -63,6 +63,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       progress: 0,
       position: 0,
       violations: 0,
+      flagged_on_red: false,
       eliminated: false,
       finished: false,
     });

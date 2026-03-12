@@ -1,4 +1,5 @@
 import { apiError, apiSuccess, buildRoomPayload, getRoomById, nextSignal, parseJson, RouteContext, updateRoom } from "@/lib/rooms";
+import { supabase } from "@/lib/supabase";
 import { ToggleSignalRequest } from "@/types/game";
 
 export async function POST(request: Request, { params }: RouteContext) {
@@ -33,6 +34,18 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     if (error || !updatedRoom) {
       return apiError(error?.message ?? "신호 변경에 실패했습니다.", 500);
+    }
+
+    if (signal === "GREEN") {
+      const { error: resetFlagError } = await supabase
+        .from("room_players")
+        .update({ flagged_on_red: false })
+        .eq("room_id", roomId)
+        .eq("flagged_on_red", true);
+
+      if (resetFlagError) {
+        return apiError(resetFlagError.message, 500);
+      }
     }
 
     const payload = await buildRoomPayload(updatedRoom);

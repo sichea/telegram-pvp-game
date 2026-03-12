@@ -52,11 +52,12 @@ export async function POST(request: Request, { params }: RouteContext) {
     const currentPosition = player.position ?? player.progress ?? 0;
 
     if (signal === "GREEN") {
-      const nextPosition = currentPosition + step;
+      const nextPosition = Math.min(currentPosition + step, room.finish_distance);
       const finished = nextPosition >= room.finish_distance;
       const { error: updateError } = await updateRoomPlayer(player.id, {
         position: nextPosition,
         progress: nextPosition,
+        flagged_on_red: false,
         finished,
         finish_at: finished ? timestamp : null,
       });
@@ -86,6 +87,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     const eliminated = room.auto_eliminate_on_red_move;
     const { error: updateError } = await updateRoomPlayer(player.id, {
       violations,
+      flagged_on_red: true,
       eliminated,
       eliminated_at: eliminated ? timestamp : null,
     });

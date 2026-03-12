@@ -44,6 +44,7 @@ export type RoomPlayerRow = {
   progress: number;
   position: number;
   violations: number;
+  flagged_on_red: boolean;
   eliminated: boolean;
   finished: boolean;
   joined_at: string;
@@ -78,9 +79,16 @@ export type MovePlayerRequest = {
   step?: number;
 };
 
+export type ShootPlayerRequest = {
+  hostUserId: string;
+  targetUserId: string;
+};
+
 export type RoomResults = {
+  winner: RoomPlayerRow | null;
   winners: RoomPlayerRow[];
   finishedPlayers: RoomPlayerRow[];
   eliminatedPlayers: RoomPlayerRow[];
   activePlayers: RoomPlayerRow[];
+  leaderboard: RoomPlayerRow[];
 };

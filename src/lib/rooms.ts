@@ -48,6 +48,7 @@ export async function getRoomPlayers(roomId: string) {
         progress,
         position,
         violations,
+        flagged_on_red,
         eliminated,
         finished,
         joined_at,
@@ -89,6 +90,7 @@ export function normalizePlayer(player: Partial<RoomPlayerRow>): Partial<RoomPla
     progress: position,
     position,
     violations: player.violations ?? 0,
+    flagged_on_red: player.flagged_on_red ?? false,
     finished,
     eliminated,
     status: finished ? "FINISHED" : eliminated ? "ELIMINATED" : "ALIVE",
@@ -114,28 +116,29 @@ export async function updateRoom(roomId: string, values: Partial<RoomRow>) {
 }
 
 export async function resolveRoomState(roomId: string) {
-  const { data: players, error } = await getRoomPlayers(roomId);
+  const [{ data: room, error: roomError }, { data: players, error: playersError }] =
+    await Promise.all([getRoomById(roomId), getRoomPlayers(roomId)]);
 
-  if (error) {
-    return { players: null, results: null, error };
+  if (roomError || playersError) {
+    return { room: null, players: null, results: null, error: roomError ?? playersError };
   }
 
   const normalizedPlayers = (players ?? []).map((player) =>
     normalizePlayer(player) as RoomPlayerRow
   );
-  const results = buildRoomResults(normalizedPlayers);
+  const results = buildRoomResults(normalizedPlayers, room?.win_condition);
 
-  return { players: normalizedPlayers, results, error: null };
+  return { room, players: normalizedPlayers, results, error: null };
 }
 
 export async function finalizeRoomIfNeeded(room: RoomRow) {
-  const { players, results, error } = await resolveRoomState(room.id);
+  const { room: currentRoom, players, results, error } = await resolveRoomState(room.id);
 
   if (error || !players || !results) {
     return { room, players, results, error };
   }
 
-  let nextRoom = room;
+  let nextRoom = currentRoom ?? room;
   const shouldFinish =
     room.status === "RUNNING" &&
     (results.finishedPlayers.length > 0 || results.activePlayers.length === 0);
@@ -172,6 +175,7 @@ export async function buildRoomPayload(room: RoomRow) {
         ...player,
         position: player.position,
         violations: player.violations,
+        flagged_on_red: player.flagged_on_red,
         eliminated: player.eliminated,
         finished: player.finished,
       })),
